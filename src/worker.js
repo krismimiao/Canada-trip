@@ -5,6 +5,7 @@ const NAMES = ["菲菲", "苗", "艺馨"];
 const CURS = ["CAD", "USD"];
 const CATS = ["餐饮", "交通", "门票", "住宿", "购物", "其他"];
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const TODO_ID_RE = /^[A-Za-z0-9_-]{2,48}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_CENTS = 100000000; // 1,000,000.00
 const MAX_BODY = 4096;
@@ -67,6 +68,9 @@ export class Ledger extends DurableObject {
       this.sql.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL)");
       this.sql.exec("INSERT OR IGNORE INTO meta (k, v) VALUES ('rev', 0)");
       this.sql.exec("CREATE TABLE IF NOT EXISTS fails (ts INTEGER NOT NULL)");
+      // 共享待办的勾选状态（新增的表，账目表不动）
+      this.sql.exec("CREATE TABLE IF NOT EXISTS todos (id TEXT PRIMARY KEY, done INTEGER NOT NULL, by TEXT NOT NULL, at INTEGER NOT NULL, rev INTEGER NOT NULL)");
+      this.sql.exec("CREATE INDEX IF NOT EXISTS todos_rev ON todos (rev)");
     });
   }
 
@@ -82,6 +86,9 @@ export class Ledger extends DurableObject {
       id: r.id, date: r.date, title: r.title, cat: r.cat, cents: r.cents, cur: r.cur, payer: r.payer,
       split: JSON.parse(r.split), note: r.note, deleted: !!r.deleted, created: r.created, updated: r.updated, rev: r.rev,
     };
+  }
+  todoRow(r) {
+    return { id: r.id, done: !!r.done, by: r.by, at: r.at, rev: r.rev };
   }
   async body(request) {
     const t = await request.text();
@@ -115,7 +122,8 @@ export class Ledger extends DurableObject {
     if (url.pathname === "/api/state" && method === "GET") {
       const since = parseInt(url.searchParams.get("since") || "0", 10) || 0;
       const items = this.sql.exec("SELECT * FROM expenses WHERE rev > ? ORDER BY rev", since).toArray().map((r) => this.row(r));
-      return json({ rev: this.rev(), items });
+      const todos = this.sql.exec("SELECT * FROM todos WHERE rev > ? ORDER BY rev", since).toArray().map((r) => this.todoRow(r));
+      return json({ rev: this.rev(), items, todos });
     }
 
     if (url.pathname === "/api/expenses" && method === "POST") {
@@ -137,6 +145,24 @@ export class Ledger extends DurableObject {
       });
       const item = this.row(this.sql.exec("SELECT * FROM expenses WHERE id = ?", id).one());
       return json({ ok: true, item, rev });
+    }
+
+    const tm = url.pathname.match(/^\/api\/todos\/([A-Za-z0-9_-]{2,48})$/);
+    if (tm && method === "PUT") {
+      const id = tm[1];
+      if (!TODO_ID_RE.test(id)) return json({ error: "bad_id" }, 400);
+      const b = await this.body(request);
+      if (!b || typeof b.done !== "boolean" || !NAMES.includes(b.by)) return json({ error: "bad_body" }, 400);
+      let rev;
+      this.ctx.storage.transactionSync(() => {
+        rev = this.bump();
+        this.sql.exec(
+          "INSERT INTO todos (id, done, by, at, rev) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET done=excluded.done, by=excluded.by, at=excluded.at, rev=excluded.rev",
+          id, b.done ? 1 : 0, b.by, Date.now(), rev
+        );
+      });
+      const todo = this.todoRow(this.sql.exec("SELECT * FROM todos WHERE id = ?", id).one());
+      return json({ ok: true, todo, rev });
     }
 
     const m = url.pathname.match(/^\/api\/expenses\/([A-Za-z0-9_-]{8,64})$/);
