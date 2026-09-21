@@ -1,5 +1,5 @@
 // 网络优先，断网时用上次缓存：山里没信号也能打开手册
-const CACHE = 'canada-trip-v1';
+const CACHE = 'canada-trip-v2';
 self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./'])));
@@ -13,7 +13,8 @@ self.addEventListener('activate', (e) => {
 });
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
   e.respondWith(
     fetch(req)
       .then((res) => {

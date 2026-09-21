@@ -148,6 +148,39 @@ dl.kv dt{color:var(--ink2)} dl.kv dd{margin:0}
 .tips b{font-weight:800}
 footer{margin-top:40px;font-size:12.5px;color:var(--ink2);text-align:center}
 noscript{display:block;padding:20px;font-weight:700}
+
+/* 账本 */
+.lgcard{background:#fff;border:3px solid var(--ink);border-radius:18px;box-shadow:var(--hard);padding:14px;margin-bottom:16px}
+.lgcard h3{margin:0 0 8px}
+.lgbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;font-size:13px;color:var(--ink2);margin-bottom:12px}
+.lgbar b{color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:3px 12px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;font:800 14px/1.2 var(--f-body);color:var(--ink);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.chip[aria-pressed="true"]{background:#ffd98a}
+.chip .ic{width:26px;height:26px}
+.pd{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--ink);background:var(--pc);flex:none;vertical-align:-1px}
+.lg-f label{display:block;font-weight:800;font-size:13px;margin:14px 0 6px}
+.lg-f input{width:100%;min-height:44px;border:2.5px solid var(--ink);border-radius:14px;padding:6px 12px;font:inherit;color:var(--ink);background:#fff}
+.lg-f input::placeholder{color:#b9a48f}
+.amtrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.amtrow input{flex:1 1 130px;font:800 24px var(--f-num)}
+.lgerr{color:var(--maple);font-weight:700;font-size:13.5px;margin:8px 0 0;min-height:1.2em}
+.mini{min-height:34px;padding:2px 12px;font-size:13px}
+table.sum{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}
+.sum th,.sum td{padding:6px 4px;text-align:right;border-top:2px dashed var(--line);font-variant-numeric:tabular-nums}
+.sum th{font-size:12.5px;color:var(--ink2);border-top:0}
+.sum th:first-child,.sum td:first-child{text-align:left}
+.pos{color:var(--ok);font-weight:800}.neg{color:var(--maple);font-weight:800}
+.settle{margin:8px 0 0;padding:8px 12px;border:2.5px solid var(--ink);border-radius:12px;background:var(--cream);font-weight:800}
+.sumblk{margin-bottom:16px}.sumh{margin:0;font-size:14px}
+.lglist{list-style:none;margin:0;padding:0}
+.lgday{font:800 13px var(--f-num);color:var(--ink2);padding:10px 0 2px}
+.lx{display:grid;grid-template-columns:auto 1fr auto;gap:0 10px;padding:8px 0;border-top:2.5px dashed var(--line);align-items:center}
+.lx .ic{width:38px;height:38px}
+.lx .t{font-weight:800;line-height:1.35}
+.lx small{display:block;color:var(--ink2);font-size:12.5px}
+.lx .amt{text-align:right;font:800 15px var(--f-num);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lx .acts{grid-column:2 / 4;display:flex;gap:8px;margin-top:6px}
 @media (max-width:380px){.ti{grid-template-columns:58px 1fr}.key{grid-template-columns:1fr}.tk-row .ic{width:46px;height:46px}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 </style>
@@ -162,7 +195,7 @@ noscript{display:block;padding:20px;font-weight:700}
     <div class="pills" id="pills"></div>
   </header>
   <nav class="jump" aria-label="页面导航">
-    <a href="#now">此刻</a><a href="#map">地图</a><a href="#book">预订</a><a href="#days">逐日</a><a href="#todo">待办</a><a href="#tips">贴士</a>
+    <a href="#now">此刻</a><a href="#map">地图</a><a href="#book">预订</a><a href="#days">逐日</a><a href="#ledger">账本</a><a href="#todo">待办</a><a href="#tips">贴士</a>
   </nav>
   <noscript>这份手册需要开启 JavaScript 才能显示。</noscript>
   <main>
@@ -192,6 +225,12 @@ noscript{display:block;padding:20px;font-weight:700}
       <h2>逐日行程</h2>
       <p class="note" id="tzNote"></p>
       <div id="dayList"></div>
+    </section>
+
+    <section id="ledger">
+      <h2>旅行账本</h2>
+      <p class="note">三个人共用一个密码，输一次这台设备就记住了。账目存在云端，实时同步；没信号时先记在手机里，有网自动上传。</p>
+      <div id="ledgerBox"></div>
     </section>
 
     <section id="todo">
@@ -741,6 +780,334 @@ window.addEventListener('resize',function(){var tk=document.getElementById('tick
     var t=document.getElementById('day-'+a.getAttribute('data-open'));
     if(t)t.open=true;
   });
+})();
+
+
+/* ---------- 旅行账本（前端）：密码输一次、多人同步、离线先记后传 ---------- */
+(function(){
+  var box=document.getElementById('ledgerBox');
+  if(!box)return;
+  var NAMES=['菲菲','苗','艺馨'],PCOL={'菲菲':'#f7a8c4','苗':'#6cb6e8','艺馨':'#7cc576'};
+  var CATS=[['餐饮','food'],['交通','car'],['门票','ticket'],['住宿','hotel'],['购物','shop'],['其他','pin']];
+  var CATIC={};CATS.forEach(function(c){CATIC[c[0]]=c[1];});
+  function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+  function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+  function lsDel(k){try{localStorage.removeItem(k);}catch(e){}}
+  function $(id){return document.getElementById(id);}
+  function readJSON(k,fb){try{var v=JSON.parse(lsGet(k)||'null');return v==null?fb:v;}catch(e){return fb;}}
+
+  var st={key:lsGet('lg.key')||'',me:lsGet('lg.me')||'',cur:lsGet('lg.cur')||'CAD',rev:0,items:{},queue:readJSON('lg.queue',[]),
+    syncing:false,ok:null,lastOk:0,lockUntil:0,editing:null,shown:false,inView:true,tick:0,notice:''};
+  var cache=readJSON('lg.cache',null);
+  if(cache&&cache.items){st.rev=cache.rev||0;st.items=cache.items;}
+  if(!Array.isArray(st.queue))st.queue=[];
+  function saveQ(){lsSet('lg.queue',JSON.stringify(st.queue));}
+  function saveCache(){lsSet('lg.cache',JSON.stringify({rev:st.rev,items:st.items}));}
+
+  function uid(){
+    try{if(window.crypto&&crypto.randomUUID)return crypto.randomUUID();}catch(e){}
+    return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12);
+  }
+  function todayStr(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+  function money(c){return (c/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  function hms(ms){var d=new Date(ms);return [d.getHours(),d.getMinutes(),d.getSeconds()].map(function(n){return String(n).padStart(2,'0');}).join(':');}
+  function parseAmount(s){
+    s=String(s||'').trim().replace(/[\s$￥¥]/g,'');
+    var v;
+    if(/^\d+([.,]\d{1,2})?$/.test(s))v=parseFloat(s.replace(',','.'));
+    else if(/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(s))v=parseFloat(s.replace(/,/g,''));
+    else return null;
+    var c=Math.round(v*100);
+    return c>=1&&c<=100000000?c:null;
+  }
+  var ERR={bad_password:'密码不对',too_many_attempts:'试太多次了，10 分钟后再试',not_configured:'后台还没设置密码（部署时要添加 LEDGER_PASSWORD）',bad_amount:'金额不对',bad_title:'内容太长或为空',bad_date:'日期不对',bad_payer:'付款人不对',bad_split:'分摊对象不对',bad_cat:'类别不对',bad_currency:'币种不对',bad_note:'备注太长',bad_id:'编号不对',bad_body:'数据格式不对'};
+  function errText(e){return ERR[e]||('出错了（'+e+'）');}
+
+  /* ----- 网络 ----- */
+  function api(method,path,body){
+    return fetch(path,{method:method,headers:{'x-ledger-key':st.key,'content-type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store'})
+      .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t);}catch(e){}return {status:r.status,json:j};});});
+  }
+  function authFail(r){
+    if(r.status===401){
+      st.key='';lsDel('lg.key');
+      showLogin('密码不对，或者已经更换了，请重新输入。');
+    }else if(r.status===429){
+      st.lockUntil=Date.now()+600000;
+      st.notice='被暂时锁定了（密码试错太多），10 分钟后自动恢复。';
+      setStatus();
+    }
+  }
+  function flush(){
+    if(!st.queue.length)return Promise.resolve(true);
+    var q=st.queue[0],p;
+    if(q.op==='add'){var b={id:q.id};for(var k in q.data)b[k]=q.data[k];p=api('POST','/api/expenses',b);}
+    else if(q.op==='edit')p=api('PUT','/api/expenses/'+q.id,q.data);
+    else p=api('DELETE','/api/expenses/'+q.id);
+    return p.then(function(r){
+      if(r.status===401||r.status===429){authFail(r);return false;}
+      if(!r.json||r.status>=500)return false;
+      st.queue.shift();saveQ();
+      if(r.status>=400&&r.json.error!=='not_found')st.notice='有一笔没能保存：'+errText(r.json.error);
+      return flush();
+    },function(){return false;});
+  }
+  function pull(){
+    return api('GET','/api/state?since='+st.rev).then(function(r){
+      if(r.status===401||r.status===429){authFail(r);return false;}
+      if(r.status!==200||!r.json||!Array.isArray(r.json.items))return false;
+      r.json.items.forEach(function(it){if(it.deleted)delete st.items[it.id];else st.items[it.id]=it;});
+      st.rev=r.json.rev;saveCache();return true;
+    },function(){return false;});
+  }
+  function sync(){
+    if(!st.key||st.syncing||Date.now()<st.lockUntil)return Promise.resolve();
+    st.syncing=true;setStatus();
+    return flush().then(function(ok){return ok?pull():false;}).then(function(ok){
+      st.syncing=false;st.ok=ok;if(ok){st.lastOk=Date.now();st.notice='';}
+      if(st.shown){setStatus();renderList();renderSummary();}
+    },function(){st.syncing=false;st.ok=false;if(st.shown)setStatus();});
+  }
+
+  /* ----- 数据视图：服务器数据 + 还没上传的操作 ----- */
+  function view(){
+    var m={};
+    Object.keys(st.items).forEach(function(k){m[k]=st.items[k];});
+    st.queue.forEach(function(q){
+      if(q.op==='del'){delete m[q.id];return;}
+      var o={id:q.id,pending:true,deleted:false,created:(m[q.id]&&m[q.id].created)||q.ts};
+      for(var k in q.data)o[k]=q.data[k];
+      m[q.id]=o;
+    });
+    return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:(b.created||0)-(a.created||0);});
+  }
+
+  /* ----- 结算 ----- */
+  function compute(list,toCents){
+    var paid={},owe={};NAMES.forEach(function(n){paid[n]=0;owe[n]=0;});
+    var total=0;
+    list.forEach(function(e){
+      var c=toCents?toCents(e):e.cents;total+=c;
+      paid[e.payer]+=c;
+      var sp=NAMES.filter(function(n){return e.split.indexOf(n)>-1;});
+      var base=Math.floor(c/sp.length),rem=c%sp.length;
+      sp.forEach(function(n,i){owe[n]+=base+(i<rem?1:0);});
+    });
+    var bal={};NAMES.forEach(function(n){bal[n]=paid[n]-owe[n];});
+    return {total:total,count:list.length,paid:paid,owe:owe,bal:bal,settle:settle(bal)};
+  }
+  function settle(bal){
+    var cr=[],de=[];
+    NAMES.forEach(function(n){if(bal[n]>0)cr.push([n,bal[n]]);else if(bal[n]<0)de.push([n,-bal[n]]);});
+    cr.sort(function(a,b){return b[1]-a[1];});de.sort(function(a,b){return b[1]-a[1];});
+    var out=[],i=0,j=0;
+    while(i<cr.length&&j<de.length){
+      var x=Math.min(cr[i][1],de[j][1]);
+      out.push({from:de[j][0],to:cr[i][0],cents:x});
+      cr[i][1]-=x;de[j][1]-=x;
+      if(!cr[i][1])i++;if(!de[j][1])j++;
+    }
+    return out;
+  }
+  function sumHTML(title,cur,r){
+    var rows=NAMES.map(function(n){
+      var b=r.bal[n];
+      return '<tr><td><span class="pd" style="--pc:'+PCOL[n]+'"></span> '+n+'</td><td>'+money(r.paid[n])+'</td><td>'+money(r.owe[n])+'</td><td class="'+(b>0?'pos':b<0?'neg':'')+'">'+(b>0?'+':b<0?'−':'')+money(Math.abs(b))+'</td></tr>';
+    }).join('');
+    var lines=r.settle.length?r.settle.map(function(s){return '<div class="settle">'+s.from+' → '+s.to+'　'+cur+' '+money(s.cents)+'</div>';}).join(''):'<div class="settle">已经平了，不用转账。</div>';
+    return '<div class="sumblk"><p class="sumh"><b>'+esc(title)+'</b> · '+r.count+' 笔 · 合计 '+cur+' '+money(r.total)+'</p>'+
+      '<table class="sum"><thead><tr><th></th><th>已付</th><th>应分担</th><th>结余</th></tr></thead><tbody>'+rows+'</tbody></table>'+lines+'</div>';
+  }
+  function renderSummary(){
+    var el=$('lgSummary');if(!el)return;
+    var list=view();
+    if(!list.length){el.innerHTML='<p class="note">还没有账目。</p>';return;}
+    var out='',anyCur=false;
+    ['CAD','USD'].forEach(function(cur){
+      var l=list.filter(function(e){return e.cur===cur;});
+      if(!l.length)return;anyCur=true;
+      out+=sumHTML(cur+' 账',cur,compute(l));
+    });
+    var rate=parseFloat(String(($('lgRate')||{}).value||'').replace(',','.'));
+    if(rate>0&&list.some(function(e){return e.cur==='USD';})&&list.some(function(e){return e.cur==='CAD';})){
+      out+=sumHTML('折合 CAD（1 USD = '+rate+' CAD）','CAD',compute(list,function(e){return e.cur==='USD'?Math.round(e.cents*rate):e.cents;}));
+    }
+    el.innerHTML=out||'<p class="note">还没有账目。</p>';
+  }
+
+  /* ----- 明细 ----- */
+  function splitText(e){
+    if(e.split.length===NAMES.length)return '三人均摊';
+    if(e.split.length===1&&e.split[0]===e.payer)return '自己的，不分摊';
+    return e.split.join('、')+' 分摊';
+  }
+  function renderList(){
+    var el=$('lgList');if(!el)return;
+    var list=view();
+    if(!list.length){el.innerHTML='<li class="note">还没有账目，上面记第一笔吧。</li>';return;}
+    var html='',last='';
+    list.forEach(function(e){
+      if(e.date!==last){last=e.date;html+='<li class="lgday">'+esc(e.date.slice(5).replace('-','/'))+'</li>';}
+      html+='<li class="lx"><div>'+ico(CATIC[e.cat]||'pin')+'</div><div><div class="t">'+esc(e.title)+(e.pending?'<span class="tag check">待上传</span>':'')+'</div>'+
+        '<small>'+esc(e.payer)+' 付 · '+esc(splitText(e))+'</small>'+(e.note?'<small>'+esc(e.note)+'</small>':'')+'</div>'+
+        '<div class="amt">'+esc(e.cur)+' '+money(e.cents)+'</div>'+
+        '<div class="acts"><button type="button" class="btn mini" data-edit="'+esc(e.id)+'">编辑</button><button type="button" class="btn mini" data-del="'+esc(e.id)+'">删除</button></div></li>';
+    });
+    el.innerHTML=html;
+  }
+  function setStatus(){
+    var el=$('lgStatus');if(!el)return;
+    var n=st.queue.length,t;
+    if(st.syncing)t='同步中…';
+    else if(st.ok===false)t=n?'没连上 · '+n+' 笔待上传':'没连上 · 显示的是上次的数据';
+    else if(st.lastOk)t='已同步 '+hms(st.lastOk)+(n?' · '+n+' 笔待上传':'');
+    else t='连接中…';
+    el.innerHTML='<b>'+esc(t)+'</b>'+(st.notice?'<br>'+esc(st.notice):'');
+  }
+
+  /* ----- 表单 ----- */
+  function chipsHTML(attr,items,sel,multi){
+    return items.map(function(it){
+      var on=multi?sel.indexOf(it.v)>-1:sel===it.v;
+      return '<button type="button" class="chip" '+attr+'="'+esc(it.v)+'" aria-pressed="'+(on?'true':'false')+'">'+(it.ic?ico(it.ic):'')+(it.dot?'<span class="pd" style="--pc:'+it.dot+'"></span>':'')+esc(it.t)+'</button>';
+    }).join('');
+  }
+  var form={cat:'餐饮',cur:st.cur==='USD'?'USD':'CAD',payer:NAMES.indexOf(st.me)>-1?st.me:'',split:NAMES.slice()};
+  function drawChips(){
+    $('fCur').innerHTML=chipsHTML('data-cur',[{v:'CAD',t:'CAD'},{v:'USD',t:'USD'}],form.cur);
+    $('fCat').innerHTML=chipsHTML('data-cat',CATS.map(function(c){return {v:c[0],t:c[0],ic:c[1]};}),form.cat);
+    $('fPayer').innerHTML=chipsHTML('data-payer',NAMES.map(function(n){return {v:n,t:n,dot:PCOL[n]};}),form.payer);
+    $('fSplit').innerHTML=chipsHTML('data-split',NAMES.map(function(n){return {v:n,t:n,dot:PCOL[n]};}),form.split,true);
+  }
+  function resetForm(keep){
+    $('fAmt').value='';$('fTitle').value='';$('fNote').value='';
+    if(!keep)$('fDate').value=todayStr();
+    st.editing=null;$('fErr').textContent='';
+    $('fFormTitle').textContent='记一笔';$('fSave').textContent='记一笔';$('fCancel').hidden=true;
+  }
+  function saveForm(){
+    var err=$('fErr');err.textContent='';
+    var c=parseAmount($('fAmt').value);
+    if(c===null){err.textContent='金额填一下（例如 45.20）';return;}
+    if(!form.payer){err.textContent='选一下是谁付的钱';return;}
+    if(!form.split.length){err.textContent='至少选一个分摊的人';return;}
+    var date=$('fDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){err.textContent='日期填一下';return;}
+    var title=$('fTitle').value.trim()||form.cat;
+    var data={date:date,title:title.slice(0,60),cat:form.cat,cents:c,cur:form.cur,payer:form.payer,split:NAMES.filter(function(n){return form.split.indexOf(n)>-1;}),note:$('fNote').value.trim().slice(0,200)};
+    if(st.editing)st.queue.push({op:'edit',id:st.editing,data:data,ts:Date.now()});
+    else st.queue.push({op:'add',id:uid(),data:data,ts:Date.now()});
+    saveQ();st.me=form.payer;lsSet('lg.me',st.me);lsSet('lg.cur',form.cur);
+    resetForm(true);renderList();renderSummary();setStatus();sync();
+  }
+  function startEdit(id){
+    var e=view().filter(function(x){return x.id===id;})[0];if(!e)return;
+    st.editing=id;
+    form.cat=e.cat;form.cur=e.cur;form.payer=e.payer;form.split=e.split.slice();
+    drawChips();
+    $('fAmt').value=(e.cents/100).toFixed(2);$('fTitle').value=e.title;$('fNote').value=e.note||'';$('fDate').value=e.date;
+    $('fFormTitle').textContent='修改这一笔';$('fSave').textContent='保存修改';$('fCancel').hidden=false;
+    var f=$('lgForm');if(f&&f.scrollIntoView)f.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  function delItem(id){
+    if(!window.confirm('删掉这一笔？'))return;
+    if(st.editing===id){resetForm(true);}
+    st.queue.push({op:'del',id:id,ts:Date.now()});saveQ();
+    renderList();renderSummary();setStatus();sync();
+  }
+  function exportCsv(){
+    var rows=view().slice().reverse();
+    var q=function(s){return '"'+String(s).replace(/"/g,'""')+'"';};
+    var out=['日期,内容,类别,付款人,分摊,币种,金额,备注'];
+    rows.forEach(function(e){out.push([e.date,q(e.title),e.cat,e.payer,q(e.split.join('/')),e.cur,(e.cents/100).toFixed(2),q(e.note||'')].join(','));});
+    var blob=new Blob(['\ufeff'+out.join('\n')],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='canada-trip-ledger.csv';
+    document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500);
+  }
+
+  /* ----- 画面 ----- */
+  function showLogin(msg){
+    st.shown=false;
+    box.innerHTML='<div class="lgcard lg-f"><h3>输入账本密码</h3><p class="note">每台设备只用输一次，之后会记住。</p>'+
+      '<input id="lgPw" type="password" autocomplete="current-password" placeholder="密码" aria-label="账本密码">'+
+      '<p class="lgerr" id="lgLoginErr" role="alert">'+esc(msg||'')+'</p><button type="button" class="btn solid" id="lgLogin">进入账本</button></div>';
+  }
+  function showApp(){
+    st.shown=true;
+    box.innerHTML=
+      '<div class="lgbar"><span id="lgStatus"></span><span class="links" style="margin:0"><button type="button" class="btn mini" id="lgSync">立即同步</button><button type="button" class="btn mini" id="lgOut">退出</button></span></div>'+
+      '<div class="lgcard lg-f" id="lgForm"><h3 id="fFormTitle">记一笔</h3>'+
+      '<div class="amtrow"><input id="fAmt" type="text" inputmode="decimal" placeholder="金额" autocomplete="off" aria-label="金额"><div class="chips" id="fCur"></div></div>'+
+      '<label>类别</label><div class="chips" id="fCat"></div>'+
+      '<label for="fTitle">内容（可不填）</label><input id="fTitle" type="text" maxlength="60" placeholder="例如：Le Continental 晚餐" autocomplete="off">'+
+      '<label>谁付的钱（这台设备会记住）</label><div class="chips" id="fPayer"></div>'+
+      '<label>分摊给（只选付款人自己 = 自己的开销，不参与结算）</label><div class="chips" id="fSplit"></div>'+
+      '<label for="fDate">日期</label><input id="fDate" type="date">'+
+      '<label for="fNote">备注（可不填）</label><input id="fNote" type="text" maxlength="200" autocomplete="off">'+
+      '<p class="lgerr" id="fErr" role="alert"></p>'+
+      '<div class="links"><button type="button" class="btn solid" id="fSave">记一笔</button><button type="button" class="btn" id="fCancel" hidden>取消编辑</button></div></div>'+
+      '<div class="lgcard"><h3>结算</h3><div id="lgSummary"></div>'+
+      '<div class="lg-f"><label for="lgRate">USD → CAD 汇率（自己填，可不填；填了会多出一份折合 CAD 的结算）</label><input id="lgRate" type="text" inputmode="decimal" placeholder="例如 1.38" autocomplete="off" value="'+esc(lsGet('lg.rate')||'')+'"></div></div>'+
+      '<div class="lgcard"><h3>明细</h3><ul id="lgList" class="lglist"></ul><div class="links"><button type="button" class="btn mini" id="lgCsv">导出 CSV</button></div></div>';
+    drawChips();$('fDate').value=todayStr();
+    renderList();renderSummary();setStatus();
+  }
+  function login(){
+    var pw=$('lgPw').value;var err=$('lgLoginErr');
+    if(!pw){err.textContent='先输密码';return;}
+    err.textContent='验证中…';st.key=pw;
+    api('GET','/api/ping').then(function(r){
+      if(r.status===200&&r.json&&r.json.ok){lsSet('lg.key',pw);st.ok=null;showApp();sync();return;}
+      st.key='';
+      if(r.status===401)err.textContent='密码不对';
+      else if(r.status===429)err.textContent=errText('too_many_attempts');
+      else if(r.status===503)err.textContent=errText('not_configured');
+      else err.textContent='后台没连上。账本只在部署到 Cloudflare 的网站里可用，本地打开的文件用不了。';
+    },function(){st.key='';err.textContent='没有网络，连上后再试。';});
+  }
+
+  box.addEventListener('click',function(ev){
+    var t=ev.target.closest?ev.target.closest('button'):null;if(!t)return;
+    if(t.id==='lgLogin')return login();
+    if(t.id==='lgSync'){st.lockUntil=0;st.notice='';return sync();}
+    if(t.id==='lgOut'){st.key='';lsDel('lg.key');return showLogin('');}
+    if(t.id==='fSave')return saveForm();
+    if(t.id==='fCancel'){return resetForm(false);}
+    if(t.id==='lgCsv')return exportCsv();
+    if(t.hasAttribute('data-edit'))return startEdit(t.getAttribute('data-edit'));
+    if(t.hasAttribute('data-del'))return delItem(t.getAttribute('data-del'));
+    if(t.hasAttribute('data-cur')){form.cur=t.getAttribute('data-cur');return drawChips();}
+    if(t.hasAttribute('data-cat')){form.cat=t.getAttribute('data-cat');return drawChips();}
+    if(t.hasAttribute('data-payer')){form.payer=t.getAttribute('data-payer');return drawChips();}
+    if(t.hasAttribute('data-split')){
+      var n=t.getAttribute('data-split'),i=form.split.indexOf(n);
+      if(i>-1)form.split.splice(i,1);else form.split.push(n);
+      return drawChips();
+    }
+  });
+  box.addEventListener('input',function(ev){
+    if(ev.target.id==='lgRate'){lsSet('lg.rate',ev.target.value);renderSummary();}
+  });
+  box.addEventListener('keydown',function(ev){
+    if(ev.key==='Enter'&&ev.target.id==='lgPw'){ev.preventDefault();login();}
+  });
+
+  /* ----- 轮询：看着账本时每 5 秒，其余时间每 30 秒；切回页面 / 恢复网络立刻同步 ----- */
+  if(typeof window.IntersectionObserver==='function'){
+    new IntersectionObserver(function(es){st.inView=es[0].isIntersecting;}).observe(document.getElementById('ledger'));
+  }
+  setInterval(function(){
+    if(document.hidden||!st.key||!st.shown)return;
+    st.tick++;
+    if(st.inView||st.tick%6===0)sync();
+  },5000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)sync();});
+  window.addEventListener('online',function(){sync();});
+  window.addEventListener('focus',function(){sync();});
+
+  if(location.protocol==='file:'){
+    box.innerHTML='<div class="lgcard"><p class="note" style="margin:0">账本要部署到 Cloudflare 之后才能用，直接打开本地文件时用不了。</p></div>';
+  }else if(st.key){showApp();sync();}
+  else showLogin('');
 })();
 
 if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){
